@@ -3,10 +3,10 @@
 Invoice image/PDF extraction, deterministic validation, bounded agent workflow, human review, and accounting exports. Built as a student project; validate all results before financial use.
 
 ## Features
-- PDF/image preprocessing (PDF rasterization and conservative contrast enhancement).
+- PDF/image preprocessing (first PDF page rasterization, orientation normalization, contrast enhancement).
 - Vision extraction through a configurable OpenAI-compatible endpoint. Configure GeminiWebSocketAPI only after confirming its exact base URL, authentication and image-input contract.
 - Pydantic invoice schema and deterministic GSTIN/date/tax/total/line-item checks.
-- LangGraph workflow with retry routing and explicit human approval.
+- LangGraph workflow with up to two validation-feedback extraction retries and explicit human approval.
 - Streamlit dashboard, correction persistence, SQLite local default / PostgreSQL deployment option.
 - CSV and minimal Tally XML export; verify XML against your Tally version and ledger setup before importing.
 - Vendor similarity suggestions and an evaluation protocol.
@@ -39,7 +39,7 @@ API health: `http://127.0.0.1:8000/health`; interactive docs: `http://127.0.0.1:
 
 ## PostgreSQL / pgvector option
 
-Set `DATABASE_URL` to your PostgreSQL URL, then run `docker compose up --build`. The Compose setup includes a pgvector-enabled PostgreSQL service. Change the example database password before using it outside local development. Current similarity matching is a lightweight baseline; full embedding-backed pgvector indexing and LangGraph Postgres checkpoint persistence require additional integration before claiming production readiness.
+Set `DATABASE_URL` to your PostgreSQL URL, then run `docker compose up --build`. The Compose setup includes a pgvector-enabled PostgreSQL service. Change the example database password before using it outside local development. Current vendor similarity matching is a lightweight lexical baseline, not embedding-backed RAG. Full pgvector indexing and LangGraph Postgres checkpoint persistence require additional integration before claiming production readiness.
 
 ## Deploy Streamlit
 
@@ -51,7 +51,8 @@ Push this repository to GitHub. In Streamlit Community Cloud, select `ui/dashboa
 - Model self-reported confidence is not calibrated probability; the current UI uses validation outcomes and human review.
 - GSTIN check-digit logic and tax rules must be verified against authoritative GST specifications and real accounting requirements before production use.
 - Duplicate keys are deterministic exact keys; fuzzy duplicate review is not yet integrated into the dashboard.
-- Retry node re-runs extraction but does not yet inject detailed field-specific validator feedback into the prompt. This is an explicit improvement required before claiming full PDF-level completion.
+- PDF ingestion currently processes only the first page; multi-page invoice merging still needs implementation.
+- The retry workflow re-prompts with validation feedback, but should be tested against your chosen API wrapper and may not fix every error.
 - Tally XML is a minimal export skeleton and requires integration testing with your target Tally setup.
 
 ## Tests
