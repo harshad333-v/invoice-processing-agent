@@ -1,8 +1,7 @@
 import json
 import streamlit as st
 from app.schemas import Invoice
-from app.extraction.extractor import extract_invoice
-from app.extraction.preprocess import document_to_image
+from app.agent.graph import process_invoice
 from app.validators.run import validate_invoice
 from app.exports.csv_export import invoice_to_csv
 from app.exports.tally_xml import invoice_to_tally_xml
@@ -23,9 +22,12 @@ if upload:
     if st.button("Extract and validate", type="primary"):
         try:
             with st.spinner("Preparing document and extracting fields…"):
-                image_bytes, mime = document_to_image(upload.getvalue(), upload.name)
-                invoice = extract_invoice(image_bytes, mime)
-                issues = validate_invoice(invoice)
+                result = process_invoice(upload.getvalue(), upload.name)
+                invoice = result["invoice"]
+                issues = result.get("issues", [])
+                st.session_state["workflow_status"] = result.get("status", "needs_review")
+                st.session_state["attempts"] = result.get("attempts", 1)
+                st.session_state["raw_model_output"] = result.get("raw_model_output", invoice.model_dump_json())
             st.session_state["invoice_json"] = invoice.model_dump(mode="json")
             st.session_state["issues"] = [i.model_dump() for i in issues]
             st.session_state["source_filename"] = upload.name
@@ -67,8 +69,13 @@ if "invoice_json" in st.session_state:
         except Exception as exc:
             st.error(f"Invoice JSON is invalid: {exc}")
     with right:
+        st.subheader("Workflow")
+        st.write("Status:", st.session_state.get("workflow_status", "needs_review"))
+        st.write("Extraction attempts:", st.session_state.get("attempts", 1))
         st.subheader("Structured output")
         st.json(st.session_state["invoice_json"])
+        with st.expander("Raw model output"):
+            st.code(st.session_state.get("raw_model_output", ""), language="json")
         st.caption("Extracted data can be wrong. Compare it with the source document before approval.")
         if "approved_invoice_json" in st.session_state:
             approved = Invoice.model_validate(st.session_state["approved_invoice_json"])
