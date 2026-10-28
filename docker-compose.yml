@@ -7,7 +7,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://invoice:change-me@db:5432/invoices}
+      DATABASE_URL: postgresql+psycopg://invoice:${POSTGRES_PASSWORD:-change-me}@db:5432/invoices
     volumes:
       - ./data:/app/data
     depends_on:
