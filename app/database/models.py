@@ -1,8 +1,8 @@
 import os
-from sqlalchemy import Boolean, DateTime, Integer, String, Text, create_engine, func, ForeignKey
+from sqlalchemy import Boolean, DateTime, Integer, String, Text, create_engine, func, ForeignKey, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker, relationship
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./invoice_agent.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data/invoice_agent.db")
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -41,3 +41,17 @@ class AuditRecord(Base):
 
 def init_db():
     Base.metadata.create_all(engine)
+    # Lightweight forward migration for existing SQLite demo databases. For PostgreSQL,
+    # use a migration tool before deploying schema changes to an existing database.
+    if DATABASE_URL.startswith("sqlite"):
+        inspector = inspect(engine)
+        existing = {col["name"] for col in inspector.get_columns("invoice_records")}
+        additions = {
+            "source_sha256": "VARCHAR(64) NOT NULL DEFAULT ''",
+            "fingerprint": "VARCHAR(64) NOT NULL DEFAULT ''",
+            "risk_json": "TEXT NOT NULL DEFAULT '{}'",
+        }
+        with engine.begin() as connection:
+            for name, definition in additions.items():
+                if name not in existing:
+                    connection.execute(text(f"ALTER TABLE invoice_records ADD COLUMN {name} {definition}"))
