@@ -5,13 +5,13 @@ import fitz
 from PIL import Image, ImageEnhance, ImageOps
 
 MAX_PDF_PAGES = 8
-MAX_PAGE_PIXELS = 16_000_000
+MAX_PAGE_PIXELS = 4_000_000
 MAX_COMPOSITE_HEIGHT = 24_000
 
 
 def document_to_images(raw: bytes, filename: str, max_pages: int = MAX_PDF_PAGES) -> list[tuple[bytes, str]]:
     """Render a bounded number of PDF pages or normalize a single uploaded image."""
-    is_pdf = Path(filename).suffix.lower() == ".pdf" or raw.startswith(b"%PDF")
+    if max_pages < 1:\n        raise ValueError("max_pages must be at least 1")\n    is_pdf = Path(filename).suffix.lower() == ".pdf" or raw.startswith(b"%PDF")
     if is_pdf:
         results: list[tuple[bytes, str]] = []
         with fitz.open(stream=raw, filetype="pdf") as pdf:
