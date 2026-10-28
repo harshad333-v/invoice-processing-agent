@@ -50,7 +50,8 @@ async def process(file: UploadFile = File(...)):
                 "issues": [issue.model_dump() for issue in issues],
                 "risk": risk,
                 "source_sha256": hashlib.sha256(raw).hexdigest(),
-                "status": result.get("status"), "attempts": result.get("attempts", 1),\n                "page_count_processed": result.get("page_count_processed", 1)}
+                "status": result.get("status"), "attempts": result.get("attempts", 1),
+                "page_count_processed": result.get("page_count_processed", 1)}
     except (ValueError, ValidationError) as exc:
         raise HTTPException(status_code=422, detail=f"Could not parse invoice document: {exc}") from exc
     except RuntimeError as exc:
