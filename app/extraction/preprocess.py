@@ -6,6 +6,7 @@ from PIL import Image, ImageEnhance, ImageOps
 
 MAX_PDF_PAGES = 8
 MAX_PAGE_PIXELS = 16_000_000
+MAX_COMPOSITE_HEIGHT = 24_000
 
 
 def document_to_images(raw: bytes, filename: str, max_pages: int = MAX_PDF_PAGES) -> list[tuple[bytes, str]]:
@@ -37,5 +38,31 @@ def _normalize_image(raw: bytes) -> tuple[bytes, str]:
 
 
 def document_to_image(raw: bytes, filename: str) -> tuple[bytes, str]:
-    """Backward-compatible helper returning the first page."""
-    return document_to_images(raw, filename)[0]
+    """Return one normalized image; PDF pages are stacked into a bounded composite."""
+    pages = [Image.open(BytesIO(data)).convert("RGB") for data, _ in document_to_images(raw, filename)]
+    try:
+        width = min(max(page.width for page in pages), 1800)
+        resized = []
+        for page in pages:
+            if page.width > width:
+                height = max(1, round(page.height * width / page.width))
+                page = page.resize((width, height), Image.Resampling.LANCZOS)
+            resized.append(page)
+        canvas_width = max(page.width for page in resized)
+        canvas_height = sum(page.height for page in resized) + 24 * (len(resized) - 1)
+        if canvas_height > MAX_COMPOSITE_HEIGHT:
+            scale = MAX_COMPOSITE_HEIGHT / canvas_height
+            resized = [page.resize((max(1, int(page.width * scale)), max(1, int(page.height * scale))), Image.Resampling.LANCZOS) for page in resized]
+            canvas_width = max(page.width for page in resized)
+            canvas_height = sum(page.height for page in resized) + 24 * (len(resized) - 1)
+        canvas = Image.new("RGB", (canvas_width, canvas_height), "white")
+        y = 0
+        for page in resized:
+            canvas.paste(page, (0, y))
+            y += page.height + 24
+        output = BytesIO()
+        canvas.save(output, format="PNG", optimize=True)
+        return output.getvalue(), "image/png"
+    finally:
+        for page in pages:
+            page.close()
