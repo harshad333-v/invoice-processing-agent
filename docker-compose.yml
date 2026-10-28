@@ -3,7 +3,33 @@ services:
     build: .
     ports:
       - "8501:8501"
+      - "8000:8000"
     env_file:
       - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://invoice:${POSTGRES_PASSWORD:-change-me}@db:5432/invoices
     volumes:
       - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port 8000 & streamlit run ui/dashboard.py --server.address=0.0.0.0 --server.port=8501"]
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: invoice
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: invoices
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U invoice -d invoices"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  postgres_data:

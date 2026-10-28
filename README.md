@@ -1,15 +1,17 @@
 # AI-Powered Invoice Processing Agent
 
-Invoice image/PDF extraction, deterministic validation, bounded agent workflow, human review, and accounting exports. Built as a student project; validate all results before financial use.
+A research/student project for invoice extraction, deterministic validation, risk triage, human approval, audit history and accounting exports. This is not an autonomous payment or accounting authority: verify every financial field against the source document.
 
-## Features
-- PDF/image preprocessing (first PDF page rasterization, orientation normalization, contrast enhancement).
-- Vision extraction through a configurable OpenAI-compatible endpoint. Configure GeminiWebSocketAPI only after confirming its exact base URL, authentication and image-input contract.
-- Pydantic invoice schema and deterministic GSTIN/date/tax/total/line-item checks.
-- LangGraph workflow with up to two validation-feedback extraction retries and explicit human approval.
-- Streamlit dashboard, correction persistence, SQLite local default / PostgreSQL deployment option.
-- CSV and minimal Tally XML export; verify XML against your Tally version and ledger setup before importing.
-- Vendor similarity suggestions and an evaluation protocol.
+## Implemented workflow
+
+- PDF/image preprocessing with bounded multi-page PDF rendering (up to 8 pages) and a single vision request containing each page.
+- Configurable OpenAI-compatible vision API adapter; strict Pydantic schema, source evidence snippets and model-reported confidence hints.
+- GSTIN structure and base-36 check-digit validation; line-item arithmetic, tax totals, negative amounts, mixed tax types and missing-field checks.
+- LangGraph extraction/validation loop with bounded feedback retries and explicit human-review state.
+- Streamlit reviewer dashboard, editable structured JSON, correction persistence, duplicate fingerprint guard, risk triage, audit events and recent-record history.
+- FastAPI endpoints: `/health`, `/validate`, `/process`; upload type and 15 MiB size checks.
+- SQLite local storage and PostgreSQL Compose service, CSV and minimal Tally XML export.
+- Exact duplicate fingerprinting, explainable deterministic review-risk score, and field-level JSONL evaluation harness.
 
 ## Quick start (Windows PowerShell)
 
@@ -21,9 +23,9 @@ pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Edit `.env` with your wrapper's OpenAI-compatible chat completions URL, API key/session token and model name. The adapter currently expects `POST {LLM_BASE_URL}/chat/completions`, Bearer authentication, and OpenAI-compatible `messages` with `image_url` content. **Do not assume GeminiWebSocketAPI supports this contract.** If it does not, implement its documented request format in `app/extraction/extractor.py`. Never commit `.env` or upload real customer invoices to an unapproved service.
+Set `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL` in `.env`. The adapter expects `POST {LLM_BASE_URL}/chat/completions`, Bearer authentication and OpenAI-compatible `messages` with `image_url` data URLs. **Do not assume GeminiWebSocketAPI supports this contract.** Confirm the provider's documented API format first. Never commit `.env` or upload confidential invoices to an unapproved service.
 
-Run the dashboard:
+Run the Streamlit reviewer:
 
 ```powershell
 streamlit run ui/dashboard.py
@@ -37,23 +39,24 @@ uvicorn app.main:app --reload
 
 API health: `http://127.0.0.1:8000/health`; interactive docs: `http://127.0.0.1:8000/docs`.
 
-## PostgreSQL / pgvector option
+## Docker Compose
 
-Set `DATABASE_URL` to your PostgreSQL URL, then run `docker compose up --build`. The Compose setup includes a pgvector-enabled PostgreSQL service. Change the example database password before using it outside local development. Current vendor similarity matching is a lightweight lexical baseline, not embedding-backed RAG. Full pgvector indexing and LangGraph Postgres checkpoint persistence require additional integration before claiming production readiness.
+1. Copy `.env.example` to `.env` and configure the model provider.
+2. Change `POSTGRES_PASSWORD` in `.env` before use outside a local demo.
+3. Run `docker compose up --build`.
+4. Open Streamlit on port 8501 and FastAPI docs on port 8000.
 
-## Deploy Streamlit
+Compose starts PostgreSQL (not pgvector) and persists the database in a named volume. The current vendor suggestion is lexical similarity; **embedding-based RAG and pgvector indexing are not implemented**. SQLite has a lightweight local schema upgrade. For existing PostgreSQL deployments, use a proper migration before updating the schema.
 
-Push this repository to GitHub. In Streamlit Community Cloud, select `ui/dashboard.py`, configure dependencies from `requirements.txt`, and add `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, and `DATABASE_URL` under app secrets/environment. A hosted free service may sleep, have limited resources, or lack persistent local disk. For multi-user or sensitive workloads use managed PostgreSQL and a suitable API deployment. Keep credentials out of source control.
+## Evaluation
 
-## Security and known limitations
-- Invoice contents are untrusted; prompt injection instructions in documents must be ignored by the model and never executed.
-- Do not send confidential invoices to a cloud model unless the data policy and consent allow it.
-- Model self-reported confidence is not calibrated probability; the current UI uses validation outcomes and human review.
-- GSTIN check-digit logic and tax rules must be verified against authoritative GST specifications and real accounting requirements before production use.
-- Duplicate keys are deterministic exact keys; fuzzy duplicate review is not yet integrated into the dashboard.
-- PDF ingestion currently processes only the first page; multi-page invoice merging still needs implementation.
-- The retry workflow re-prompts with validation feedback, but should be tested against your chosen API wrapper and may not fix every error.
-- Tally XML is a minimal export skeleton and requires integration testing with your target Tally setup.
+Prepare aligned JSONL files with one invoice JSON object per line:
+
+```powershell
+python evaluation/evaluate.py --predictions data/predictions.jsonl --ground-truth data/ground_truth.jsonl --tolerance 0.01
+```
+
+Report per-field accuracy and micro field accuracy on a representative, permissioned test set. Split by vendor/source where possible to avoid leakage. Report exact-match and numeric-tolerance definitions, sample count, extraction failures, validation precision/recall and human-review rate separately. Do not report results from synthetic examples as real-world model performance.
 
 ## Tests
 
@@ -61,21 +64,37 @@ Push this repository to GitHub. In Streamlit Community Cloud, select `ui/dashboa
 pytest -q
 ```
 
+GitHub Actions runs the test suite on pushes and pull requests. Review the actual run status before treating a change as verified.
+
+## Security and known limitations
+
+- File uploads are size/type checked, but this is a demo and should not be exposed publicly without authentication, rate limiting, malware scanning and operational monitoring.
+- Invoice text is untrusted input; prompt injection instructions must never be executed. Do not send sensitive documents to an unapproved provider.
+- Model-reported confidence is uncalibrated and is only a review hint.
+- GSTIN checksum validation is implemented locally but must be checked against authoritative test vectors before accounting production use.
+- Duplicate detection currently detects exact normalized fingerprints; near-duplicate detection and cross-field fuzzy matching are not implemented.
+- Risk score is a deterministic review-priority heuristic, **not** a trained fraud model or fraud probability.
+- Multi-page PDFs are passed as multiple images in one request. Provider page/image limits vary; large invoices should be tested with the selected provider.
+- Tally XML is a minimal export skeleton and must be integration-tested with your Tally version and ledger setup.
+- No trained anomaly detector, embedding-backed retrieval, pgvector index, authentication/authorization or calibrated confidence model is included yet.
+
 ## Architecture
 
 ```mermaid
 flowchart TD
-  A[Streamlit Upload] --> B[PDF/Image Preprocess]
+  A[PDF or Image Upload] --> B[Bounded Multi-page Preprocessing]
   B --> C[Vision API Adapter]
-  C --> D[Pydantic Schema]
-  D --> E[LangGraph Workflow]
+  C --> D[Pydantic Invoice Schema + Evidence]
+  D --> E[LangGraph Retry Loop]
   E --> F[Deterministic Validators]
-  F -->|errors and retry budget| C
-  F --> G[Human Review]
-  G --> H[SQLite/PostgreSQL Record]
-  H --> I[CSV / Tally XML]
-  H --> J[Historical Vendor Suggestions]
+  F -->|Blocking findings and retry budget| C
+  F --> G[Risk Triage + Human Review]
+  G --> H[SQLite / PostgreSQL + Audit Event]
+  H --> I[Duplicate Fingerprint Guard]
+  H --> J[CSV / Tally XML]
+  H --> K[Evaluation Harness]
 ```
 
 ## Project status
-This repository is an implementation baseline, not a claim of production-ready completion. Run tests, verify the exact vision API contract, test exports with synthetic invoices, and complete the evaluation before using it with real business records.
+
+Implementation has been expanded on `feature/end-to-end-invoice-agent`. A successful code commit is not proof that the provider integration or deployment works. Run CI, configure and test the actual provider contract, and evaluate against labeled invoices before using this with business records.
