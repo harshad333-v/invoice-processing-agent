@@ -55,6 +55,15 @@ def extract_invoice(image_bytes: bytes | list[tuple[bytes, str]], mime_type: str
         raise ValueError("Extraction provider returned an unexpected response shape") from exc
     if isinstance(content, list):
         content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
+    if content is None or not str(content).strip():
+        finish_reason = data.get("choices", [{}])[0].get("finish_reason", "unknown") if isinstance(data.get("choices"), list) and data.get("choices") else "unknown"
+        model_returned = data.get("model", settings.llm_model)
+        raise ValueError(
+            "GeminiWeb API returned an empty assistant message "
+            f"(model={model_returned!r}, finish_reason={finish_reason!r}). "
+            "The JSON parser is not the cause: the upstream model/proxy returned no text. "
+            "First test a supported model such as gemini-3.6-flash and verify that the API proxy can process image_url data URLs."
+        )
     text = str(content).strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
