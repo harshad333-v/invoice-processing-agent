@@ -36,7 +36,7 @@ class AuditRecord(Base):
     action: Mapped[str] = mapped_column(String(80))
     actor: Mapped[str] = mapped_column(String(120), default="system")
     details_json: Mapped[str] = mapped_column(Text, default="{}")
-    created_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     invoice: Mapped[InvoiceRecord] = relationship(back_populates="audit_events")
 
 
