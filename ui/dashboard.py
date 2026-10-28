@@ -5,6 +5,7 @@ from app.schemas import Invoice
 from app.agent.graph import process_invoice
 from app.validators.run import validate_invoice
 from app.validators.duplicates import invoice_fingerprint, find_duplicate_candidates
+from app.retrieval.vendor_match import suggest_vendor
 from app.agent.risk import score_invoice_risk
 from app.exports.csv_export import invoice_to_csv
 from app.exports.tally_xml import invoice_to_tally_xml
@@ -54,7 +55,21 @@ if "invoice_json" in st.session_state:
         try:
             invoice = Invoice.model_validate_json(edited)
             issues = validate_invoice(invoice)
-            risk = score_invoice_risk(invoice, issues)
+            with SessionLocal() as db:
+                prior_records = db.query(InvoiceRecord).order_by(InvoiceRecord.id.desc()).limit(500).all()
+            prior_invoices = []
+            known_vendors = set()
+            for prior_record in prior_records:
+                try:
+                    prior_invoice = Invoice.model_validate_json(prior_record.invoice_json)
+                    prior_invoices.append(prior_invoice)
+                    if prior_invoice.vendor_name.strip():
+                        known_vendors.add(prior_invoice.vendor_name.strip())
+                except Exception:
+                    continue
+            duplicates = find_duplicate_candidates(invoice, prior_invoices)
+            vendor_suggestion = suggest_vendor(invoice, sorted(known_vendors))
+            risk = score_invoice_risk(invoice, issues, duplicates)
             st.session_state["current_issues"] = [i.model_dump() for i in issues]
             st.session_state["current_invoice_json"] = invoice.model_dump(mode="json")
             if issues:
@@ -65,6 +80,11 @@ if "invoice_json" in st.session_state:
                 st.success("No configured validation issues found. Human approval is still required.")
             st.metric("Review risk score (heuristic)", f"{risk['score']}/100")
             st.caption(f"Risk tier: {risk['tier']}. This is a triage score, not a fraud probability.")
+            if vendor_suggestion and vendor_suggestion.get("suggestion"):
+                st.info(f"Historical vendor-name suggestion: {vendor_suggestion['vendor_name']} (lexical similarity {vendor_suggestion['similarity']:.0%}). Verify before changing.")
+            if duplicates:
+                st.warning(f"Potential exact duplicate match(es): {len(duplicates)}. Check saved invoice history before approving.")
+                st.json(duplicates)
             blockers = [i for i in issues if i.severity == "error"]
             if blockers:
                 st.info("Resolve blocking issues before the app records this invoice as approved.")
